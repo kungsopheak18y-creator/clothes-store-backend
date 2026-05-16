@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["php83", "php83Extensions.pgsql", "php83Extensions.mbstring", "php83Extensions.xml", "php83Extensions.curl", "php83Extensions.zip", "php83Extensions.bcmath", "php83Extensions.tokenizer", "php83Extensions.ctype", "php83Extensions.fileinfo", "composer"]
+nixPkgs = ["php84", "php84Extensions.pgsql", "php84Extensions.mbstring", "php84Extensions.xml", "php84Extensions.curl", "php84Extensions.zip", "php84Extensions.bcmath", "php84Extensions.tokenizer", "php84Extensions.ctype", "php84Extensions.fileinfo", "composer"]
 
 [phases.build]
 cmds = [
