@@ -108,61 +108,164 @@ class PaymentController extends Controller
         ]);
     }
 
+    // public function status(Request $request, Order $order)
+    // {
+    //     if ($order->user_id !== $request->user()->id) {
+    //         return response()->json(['message' => 'Forbidden.'], 403);
+    //     }
+
+    //     // Already paid — return immediately
+    //     if ($order->status === 'paid') {
+    //         return response()->json(['payment_status' => 'PAID']);
+    //     }
+
+    //     if (!$order->md5) {
+    //         return response()->json(['payment_status' => 'PENDING']);
+    //     }
+
+    //     try {
+    //         $response = Http::withHeaders([
+    //             'Authorization' => 'Bearer ' . env('BAKONG_TOKEN'),
+    //             'Content-Type'  => 'application/json',
+    //         ])->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
+    //             'md5' => $order->md5,
+    //         ]);
+
+    //         \Log::info('Bakong status check', [
+    //             'order_id' => $order->id,
+    //             'md5'      => $order->md5,
+    //             'status'   => $response->status(),
+    //             'body'     => $response->json(),
+    //         ]);
+
+    //         $body = $response->json();
+
+    //         // ✅ Payment confirmed by Bakong
+    //         if (isset($body['responseCode']) && $body['responseCode'] === 0 && !empty($body['data'])) {
+    //             $order->update(['status' => 'paid']);
+
+    //             // ✅ Send Telegram notification when payment confirmed
+    //             $order->load(['items.product', 'items.variant', 'user']);
+    //             $this->sendTelegramPaymentConfirmed($order);
+
+    //             return response()->json(['payment_status' => 'PAID']);
+    //         }
+
+    //         // ✅ Only expired after confirming no payment
+    //         if ($order->qr_expires_at && now()->gt($order->qr_expires_at)) {
+    //             return response()->json(['payment_status' => 'EXPIRED']);
+    //         }
+
+    //         return response()->json(['payment_status' => 'PENDING']);
+
+    //     } catch (\Exception $e) {
+    //         \Log::error('Bakong status check failed', ['error' => $e->getMessage()]);
+    //         return response()->json(['payment_status' => 'PENDING']);
+    //     }
+    // }
+
     public function status(Request $request, Order $order)
-    {
-        if ($order->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Forbidden.'], 403);
-        }
-
-        // Already paid — return immediately
-        if ($order->status === 'paid') {
-            return response()->json(['payment_status' => 'PAID']);
-        }
-
-        if (!$order->md5) {
-            return response()->json(['payment_status' => 'PENDING']);
-        }
-
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . env('BAKONG_TOKEN'),
-                'Content-Type'  => 'application/json',
-            ])->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
-                'md5' => $order->md5,
-            ]);
-
-            \Log::info('Bakong status check', [
-                'order_id' => $order->id,
-                'md5'      => $order->md5,
-                'status'   => $response->status(),
-                'body'     => $response->json(),
-            ]);
-
-            $body = $response->json();
-
-            // ✅ Payment confirmed by Bakong
-            if (isset($body['responseCode']) && $body['responseCode'] === 0 && !empty($body['data'])) {
-                $order->update(['status' => 'paid']);
-
-                // ✅ Send Telegram notification when payment confirmed
-                $order->load(['items.product', 'items.variant', 'user']);
-                $this->sendTelegramPaymentConfirmed($order);
-
-                return response()->json(['payment_status' => 'PAID']);
-            }
-
-            // ✅ Only expired after confirming no payment
-            if ($order->qr_expires_at && now()->gt($order->qr_expires_at)) {
-                return response()->json(['payment_status' => 'EXPIRED']);
-            }
-
-            return response()->json(['payment_status' => 'PENDING']);
-
-        } catch (\Exception $e) {
-            \Log::error('Bakong status check failed', ['error' => $e->getMessage()]);
-            return response()->json(['payment_status' => 'PENDING']);
-        }
+{
+    if ($order->user_id !== $request->user()->id) {
+        return response()->json([
+            'message' => 'Forbidden.'
+        ], 403);
     }
+
+    // Already paid
+    if ($order->status === 'paid') {
+        return response()->json([
+            'payment_status' => 'PAID'
+        ]);
+    }
+
+    // No md5 yet
+    if (!$order->md5) {
+        return response()->json([
+            'payment_status' => 'PENDING'
+        ]);
+    }
+
+    try {
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . env('BAKONG_TOKEN'),
+            'Content-Type'  => 'application/json',
+        ])->post(
+            'https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5',
+            [
+                'md5' => $order->md5,
+            ]
+        );
+
+        $body = $response->json();
+
+        // Debug log
+        \Log::info('FULL BAKONG RESPONSE', [
+            'order_id' => $order->id,
+            'status_code' => $response->status(),
+            'body' => $body,
+        ]);
+
+        // Payment success check
+        $isPaid =
+            isset($body['responseCode']) &&
+            (string) $body['responseCode'] === '0' &&
+            !empty($body['data']);
+
+        if ($isPaid) {
+
+            // Prevent duplicate updates
+            if ($order->status !== 'paid') {
+
+                $order->update([
+                    'status' => 'paid'
+                ]);
+
+                // Load relations
+                $order->load([
+                    'items.product',
+                    'items.variant',
+                    'user'
+                ]);
+
+                // Send telegram once
+                $this->sendTelegramPaymentConfirmed($order);
+            }
+
+            return response()->json([
+                'payment_status' => 'PAID'
+            ]);
+        }
+
+        // QR expired
+        if (
+            $order->qr_expires_at &&
+            now()->gt($order->qr_expires_at)
+        ) {
+
+            return response()->json([
+                'payment_status' => 'EXPIRED'
+            ]);
+        }
+
+        // Still waiting
+        return response()->json([
+            'payment_status' => 'PENDING'
+        ]);
+
+    } catch (\Exception $e) {
+
+        \Log::error('Bakong status check failed', [
+            'order_id' => $order->id,
+            'error' => $e->getMessage(),
+        ]);
+
+        return response()->json([
+            'payment_status' => 'PENDING'
+        ]);
+    }
+}
 
     public function cancel(Request $request, Order $order)
     {
