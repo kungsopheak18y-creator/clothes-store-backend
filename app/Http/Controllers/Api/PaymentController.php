@@ -200,7 +200,7 @@ class PaymentController extends Controller
 
         $body = $response->json();
 
-        dd($body);
+        return response()->json($body);
 
         // Debug log
         \Log::info('FULL BAKONG RESPONSE', [
