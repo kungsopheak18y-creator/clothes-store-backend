@@ -4,12 +4,10 @@ nixPkgs = ["php84", "php84Extensions.pgsql", "php84Extensions.mbstring", "php84E
 [phases.build]
 cmds = [
   "composer install --no-dev --optimize-autoloader",
-  "php artisan config:clear",
-  "php artisan route:clear",
-  "php artisan cache:clear",
   "php artisan config:cache",
+  "php artisan route:cache",
   "php artisan migrate --force"
 ]
 
 [start]
-cmd = "php artisan serve --host=0.0.0.0 --port=$PORT"
+cmd = "php -S 0.0.0.0:$PORT -t public"
