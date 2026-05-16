@@ -168,7 +168,7 @@ class PaymentController extends Controller
 {
     if ($order->user_id !== $request->user()->id) {
         return response()->json([
-            'message' => 'Forbidden.'
+            'payment_status' => 'FORBIDDEN'
         ], 403);
     }
 
@@ -191,56 +191,35 @@ class PaymentController extends Controller
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . env('BAKONG_TOKEN'),
             'Content-Type'  => 'application/json',
-        ])->post(
-            'https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5',
-            [
-                'md5' => $order->md5,
-            ]
-        );
+        ])->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
+            'md5' => $order->md5,
+        ]);
 
         $body = $response->json();
 
-        return response()->json($body);
-
-        // Debug log
-        \Log::info('FULL BAKONG RESPONSE', [
-            'order_id' => $order->id,
-            'status_code' => $response->status(),
-            'body' => $body,
+        \Log::info('BAKONG RESPONSE', [
+            'body' => $body
         ]);
 
-        // Payment success check
-        $isPaid =
+        // SUCCESS PAYMENT
+        if (
             isset($body['responseCode']) &&
-            (string) $body['responseCode'] === '0' &&
-            !empty($body['data']);
+            (
+                $body['responseCode'] == 0 ||
+                $body['responseCode'] == "0"
+            )
+        ) {
 
-        if ($isPaid) {
-
-            // Prevent duplicate updates
-            if ($order->status !== 'paid') {
-
-                $order->update([
-                    'status' => 'paid'
-                ]);
-
-                // Load relations
-                $order->load([
-                    'items.product',
-                    'items.variant',
-                    'user'
-                ]);
-
-                // Send telegram once
-                $this->sendTelegramPaymentConfirmed($order);
-            }
+            $order->update([
+                'status' => 'paid'
+            ]);
 
             return response()->json([
                 'payment_status' => 'PAID'
             ]);
         }
 
-        // QR expired
+        // EXPIRED
         if (
             $order->qr_expires_at &&
             now()->gt($order->qr_expires_at)
@@ -251,16 +230,15 @@ class PaymentController extends Controller
             ]);
         }
 
-        // Still waiting
+        // DEFAULT
         return response()->json([
             'payment_status' => 'PENDING'
         ]);
 
     } catch (\Exception $e) {
 
-        \Log::error('Bakong status check failed', [
-            'order_id' => $order->id,
-            'error' => $e->getMessage(),
+        \Log::error('PAYMENT STATUS ERROR', [
+            'error' => $e->getMessage()
         ]);
 
         return response()->json([
