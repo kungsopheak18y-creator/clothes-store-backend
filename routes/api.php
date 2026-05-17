@@ -66,12 +66,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── TEMP DEBUG — remove after fixing payment ───────────────
     Route::get('/debug/payment/{order}', function (Request $request, \App\Models\Order $order) {
-        $response = \Illuminate\Support\Facades\Http::withHeaders([
-            'Authorization' => 'Bearer ' . env('BAKONG_TOKEN'),
-            'Content-Type'  => 'application/json',
-        ])->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
-            'md5' => $order->md5,
-        ]);
+        $response = \Illuminate\Support\Facades\Http::withToken(env('BAKONG_TOKEN'))
+            ->withHeaders(['Content-Type' => 'application/json'])
+            ->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
+                'md5' => $order->md5,
+            ]);
 
         return response()->json([
             'order_id'     => $order->id,
