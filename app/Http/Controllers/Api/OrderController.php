@@ -30,10 +30,10 @@ class OrderController extends Controller
 
     public function adminIndex()
     {
-        $orders = Order::with(['user', 'items.product', 'items.variant'])
+        $orders = Order::with(['user.addresses', 'items.product', 'items.variant'])
             ->where(function ($q) {
                 $q->where('status', '!=', 'pending')
-                  ->orWhereNull('qr_string');
+                ->orWhereNull('qr_string');
             })
             ->latest()
             ->get();
