@@ -110,7 +110,7 @@ class AddressController extends Controller
 
         return response()->json([
             'message' => 'Default address updated successfully',
-            'address' => $address,
+            'address' => $address->fresh(),
         ]);
     }
 }
