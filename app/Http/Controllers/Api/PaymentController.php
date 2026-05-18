@@ -75,6 +75,18 @@ class PaymentController extends Controller
         $qr  = $this->getBakongData($response, 'qr');
         $md5 = $this->getBakongData($response, 'md5');
 
+        // ✅ Register QR with Bakong server so checkTransactionByMD5 works
+        try {
+            $bakong = new BakongKHQR(env('BAKONG_TOKEN'));
+            $deepLink = $bakong->generateDeepLink($qr, null);
+            \Log::info('DeepLink registration', [
+                'order_id' => $order->id,
+                'result'   => $deepLink,
+            ]);
+        } catch (\Exception $e) {
+            \Log::warning('DeepLink registration failed', ['error' => $e->getMessage()]);
+        }
+
         $order->update([
             'qr_string'     => $qr,
             'md5'           => $md5,
@@ -96,17 +108,14 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
-        // ✅ Already paid — return immediately
         if ($order->status === 'paid') {
             return response()->json(['status' => 'PAID']);
         }
 
-        // ✅ Check expiry BEFORE calling Bakong API (saves an unnecessary API call)
         if ($order->qr_expires_at && now()->gt($order->qr_expires_at)) {
             return response()->json(['status' => 'EXPIRED']);
         }
 
-        // No MD5 stored yet — QR not generated
         if (!$order->md5) {
             return response()->json(['status' => 'PENDING']);
         }
@@ -117,7 +126,6 @@ class PaymentController extends Controller
                     'Content-Type'    => 'application/json',
                     'Accept'          => 'application/json',
                     'Accept-Language' => 'en-US,en;q=0.9',
-                    // ✅ These headers help bypass CloudFront geo-restriction (same fix as your Node.js version)
                     'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Origin'          => 'https://api-bakong.nbc.gov.kh',
                     'Referer'         => 'https://api-bakong.nbc.gov.kh/',
@@ -135,7 +143,6 @@ class PaymentController extends Controller
                 'body'        => $body,
             ]);
 
-            // ✅ responseCode 0 + data present = payment confirmed
             if (
                 isset($body['responseCode']) &&
                 $body['responseCode'] === 0 &&
@@ -147,7 +154,6 @@ class PaymentController extends Controller
                 return response()->json(['status' => 'PAID']);
             }
 
-            // responseCode 6 = transaction not found yet = still pending
             return response()->json(['status' => 'PENDING']);
 
         } catch (\Exception $e) {
@@ -155,7 +161,6 @@ class PaymentController extends Controller
                 'order_id' => $order->id,
                 'error'    => $e->getMessage(),
             ]);
-            // ✅ Return PENDING on network error so frontend keeps polling
             return response()->json(['status' => 'PENDING']);
         }
     }
