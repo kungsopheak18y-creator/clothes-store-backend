@@ -16,6 +16,12 @@ use App\Http\Controllers\Api\ReviewController;
 // ── PUBLIC ────────────────────────────────────────────────────
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);
+Route::get('/debug/google-config', function() {
+    return response()->json([
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'redirect'  => env('GOOGLE_REDIRECT_URI'),
+    ]);
+});
 
 Route::get('/auth/google/redirect', [AuthController::class, 'googleRedirect']);
 Route::get('/auth/google/callback', [AuthController::class, 'googleCallback']);
