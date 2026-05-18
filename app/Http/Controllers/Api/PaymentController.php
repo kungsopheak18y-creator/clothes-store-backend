@@ -202,17 +202,28 @@ class PaymentController extends Controller
                 ? $order->user->first_name . ' ' . $order->user->last_name
                 : ($order->user->name ?? 'Unknown');
 
-            $message = "✅ <b>Payment Confirmed — Order #{$order->id}</b>\n\n"
-                     . "👤 Customer: {$customerName}\n"
-                     . "📧 Email: {$order->user->email}\n\n"
-                     . "📦 Items:\n{$itemsList}\n\n"
-                     . "💰 Total: <b>\${$order->total_amount}</b>\n"
-                     . "🕐 Time: " . now()->format('d M Y, h:i A');
+            // ✅ Get customer's default address
+            $address = $order->user->addresses()->where('is_default', true)->first()
+                    ?? $order->user->addresses()->latest()->first();
 
-            Http::post("https://api.telegram.org/bot{$token}/sendMessage", [
-                'chat_id'    => $chatId,
-                'parse_mode' => 'HTML',
-                'text'       => $message,
+            $addressLine = $address
+                ? "{$address->first_name} {$address->last_name}\n"
+                . "📍 {$address->address_line}, {$address->city}, {$address->country}\n"
+                . "📞 {$address->phone}"
+                : 'No address saved';
+
+            $message = "✅ <b>Payment Confirmed — Order #{$order->id}</b>\n\n"
+                . "👤 Customer: {$customerName}\n"
+                . "📧 Email: {$order->user->email}\n\n"
+                . "📬 Delivery Address:\n{$addressLine}\n\n"
+                . "📦 Items:\n{$itemsList}\n\n"
+                . "💰 Total: <b>\${$order->total_amount}</b>\n"
+                . "🕐 Time: " . now()->format('d M Y, h:i A');
+
+                Http::post("https://api.telegram.org/bot{$token}/sendMessage", [
+                    'chat_id'    => $chatId,
+                    'parse_mode' => 'HTML',
+                    'text'       => $message,
             ]);
         } catch (\Exception $e) {
             \Log::warning('Telegram payment notification failed: ' . $e->getMessage());
