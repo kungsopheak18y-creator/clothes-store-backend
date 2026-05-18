@@ -96,30 +96,46 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Forbidden.'], 403);
         }
 
+        // ✅ Already paid — return immediately
         if ($order->status === 'paid') {
-            return response()->json(['payment_status' => 'PAID']);
+            return response()->json(['status' => 'PAID']);
         }
 
+        // ✅ Check expiry BEFORE calling Bakong API (saves an unnecessary API call)
+        if ($order->qr_expires_at && now()->gt($order->qr_expires_at)) {
+            return response()->json(['status' => 'EXPIRED']);
+        }
+
+        // No MD5 stored yet — QR not generated
         if (!$order->md5) {
-            return response()->json(['payment_status' => 'PENDING']);
+            return response()->json(['status' => 'PENDING']);
         }
 
         try {
-            $response = \Illuminate\Support\Facades\Http::withToken(env('BAKONG_TOKEN'))
-                ->withHeaders(['Content-Type' => 'application/json'])
+            $response = Http::withToken(env('BAKONG_TOKEN'))
+                ->withHeaders([
+                    'Content-Type'    => 'application/json',
+                    'Accept'          => 'application/json',
+                    'Accept-Language' => 'en-US,en;q=0.9',
+                    // ✅ These headers help bypass CloudFront geo-restriction (same fix as your Node.js version)
+                    'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Origin'          => 'https://api-bakong.nbc.gov.kh',
+                    'Referer'         => 'https://api-bakong.nbc.gov.kh/',
+                ])
+                ->timeout(15)
                 ->post('https://api-bakong.nbc.gov.kh/v1/check_transaction_by_md5', [
                     'md5' => $order->md5,
                 ]);
 
             $body = $response->json();
 
-            \Log::info('Bakong check', [
+            \Log::info('Bakong poll', [
                 'order_id'    => $order->id,
                 'http_status' => $response->status(),
                 'body'        => $body,
             ]);
 
-            // ✅ Payment confirmed — responseCode 0 with data
+            // ✅ responseCode 0 + data present = payment confirmed
             if (
                 isset($body['responseCode']) &&
                 $body['responseCode'] === 0 &&
@@ -128,19 +144,19 @@ class PaymentController extends Controller
                 $order->update(['status' => 'paid']);
                 $order->load(['items.product', 'items.variant', 'user']);
                 $this->sendTelegramPaymentConfirmed($order);
-                return response()->json(['payment_status' => 'PAID']);
+                return response()->json(['status' => 'PAID']);
             }
 
-            // Check expired
-            if ($order->qr_expires_at && now()->gt($order->qr_expires_at)) {
-                return response()->json(['payment_status' => 'EXPIRED']);
-            }
-
-            return response()->json(['payment_status' => 'PENDING']);
+            // responseCode 6 = transaction not found yet = still pending
+            return response()->json(['status' => 'PENDING']);
 
         } catch (\Exception $e) {
-            \Log::error('Bakong check failed', ['error' => $e->getMessage()]);
-            return response()->json(['payment_status' => 'PENDING']);
+            \Log::error('Bakong check failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage(),
+            ]);
+            // ✅ Return PENDING on network error so frontend keeps polling
+            return response()->json(['status' => 'PENDING']);
         }
     }
 
